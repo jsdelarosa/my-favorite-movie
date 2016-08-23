@@ -154,6 +154,8 @@ class LoginViewController: UIViewController {
         /* 2/3. Build the URL, Configure the request */
         let request = NSURLRequest(URL: appDelegate.tmdbURLFromParameters(methodParameters, withPathExtension: "/authentication/token/validate_with_login"))
         
+        print(request.URL!)
+        
         /* 4. Make the request */
         let task = appDelegate.sharedSession.dataTaskWithRequest(request) {(data, response, error ) in
         
@@ -180,7 +182,7 @@ class LoginViewController: UIViewController {
             do {
                 parsedResult = try NSJSONSerialization.JSONObjectWithData(data!, options: .AllowFragments)
             } catch {
-                displayError("Could nor parse the data as JSON: \(data)")
+                displayError("Could not parse the data as JSON: \(data)")
                 return
             }
             
@@ -203,13 +205,54 @@ class LoginViewController: UIViewController {
         /* TASK: Get a session ID, then store it (appDelegate.sessionID) and get the user's id */
         
         /* 1. Set the parameters */
-        let methodParameters = []
+        let methodParameters: [String: String!] = [Constants.TMDBParameterKeys.ApiKey: Constants.TMDBParameterValues.ApiKey, Constants.TMDBParameterKeys.RequestToken: requestToken]
         
         /* 2/3. Build the URL, Configure the request */
+        let request = NSURLRequest(URL: appDelegate.tmdbURLFromParameters(methodParameters, withPathExtension: "/authentication/session/new"))
+        
         /* 4. Make the request */
+        let task = appDelegate.sharedSession.dataTaskWithRequest(request){ (data, response, error) in
+        
+            func displayError(error: String, debugLabelText: String? = nil){
+                print(error)
+                performUIUpdatesOnMain{
+                    self.setUIEnabled(true)
+                    self.debugTextLabel.text = "Login Failed (Login Step)"
+                }
+            }
+            
+            guard (error == nil) else {
+                displayError("There was an error with your request: \(error)")
+                return
+            }
+            
+            guard let statusCode = (response as? NSHTTPURLResponse)?.statusCode where statusCode >= 200 && statusCode <= 299 else { displayError("Your request returned a status code other than 2xx!")
+                return
+            }
+        
         /* 5. Parse the data */
+            let parsedResult: AnyObject!
+            do{
+                parsedResult = try NSJSONSerialization.JSONObjectWithData(data!, options: .AllowFragments)
+            } catch{
+                displayError("Could not parse the data as JSON: \(data)")
+                return
+            }
+            
+            // Is the session_id in parsed result
+            guard let sessionID = parsedResult[Constants.TMDBResponseKeys.SessionID] as? String else {"Cannot find key '\(Constants.TMDBResponseKeys.SessionID)' in \(parsedResult)"
+            return
+            }
+        
         /* 6. Use the data! */
+        print("Session ID: " + sessionID)
+            
+        self.appDelegate.sessionID = sessionID
+        self.getUserID(self.appDelegate.sessionID!)
+        
+        }
         /* 7. Start the request */
+        task.resume()
     }
     
     private func getUserID(sessionID: String) {
@@ -217,11 +260,61 @@ class LoginViewController: UIViewController {
         /* TASK: Get the user's ID, then store it (appDelegate.userID) for future use and go to next view! */
         
         /* 1. Set the parameters */
+        let methodParameters = [Constants.TMDBParameterKeys.ApiKey: Constants.TMDBParameterValues.ApiKey,
+                                                    Constants.TMDBParameterKeys.SessionID: sessionID]
+        
         /* 2/3. Build the URL, Configure the request */
+        let request = NSURLRequest(URL: appDelegate.tmdbURLFromParameters(methodParameters, withPathExtension: "/account"))
+        
         /* 4. Make the request */
+        let task = appDelegate.sharedSession.dataTaskWithRequest(request){ (data, response, error) in
+            
+            func displayError(error: String, debugLabelText: String? = nil){
+                print(error)
+                performUIUpdatesOnMain{
+                    self.setUIEnabled(true)
+                    self.debugTextLabel.text = "Login Failed (User ID)"
+                }
+            }
+            
+            guard (error == nil) else {
+                displayError("There was an error with your request: \(error)")
+                return
+            }
+            
+            guard let statusCode = (response as? NSHTTPURLResponse)?.statusCode where statusCode >= 200 && statusCode <= 299 else { displayError("Your request returned a status code other than 2xx!")
+                return
+            }
+
         /* 5. Parse the data */
+            let parsedResult: AnyObject!
+            do{
+                parsedResult = try NSJSONSerialization.JSONObjectWithData(data!, options: .AllowFragments)
+            } catch{
+                displayError("Could not parse the data as JSON '\(data)'")
+                return
+            }
+            
+            /* GUARD: Did TheMovieDB return an error? */
+            if let _ = parsedResult[Constants.TMDBResponseKeys.StatusCode] as? Int {
+                displayError("TheMovieDB returned an error. See the '\(Constants.TMDBResponseKeys.StatusCode)' and '\(Constants.TMDBResponseKeys.StatusMessage)' in \(parsedResult)")
+                return
+            }
+            
+            // Is the User ID in parsedResult?
+            guard let userID = parsedResult![Constants.TMDBResponseKeys.UserID] as? Int else {
+                displayError("Cannot find key '\(Constants.TMDBResponseKeys.UserID)' in \(parsedResult)")
+                return
+            }
+            
         /* 6. Use the data! */
+        print(userID)
+        
+            self.appDelegate.userID = userID
+            self.completeLogin()
+        }
         /* 7. Start the request */
+        task.resume()
     }
 }
 
